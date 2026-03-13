@@ -1,0 +1,14 @@
+with_orient: false
+invert_y: false
+start_hl: true
+hl_only: false
+speed: 0.30
+diag_period_sec: 0.5
+cache_dir: "./.cf_cache"
+
+drones:
+
+  - id: "cf2"
+    uri: "radio://0/80/2M/E7E7E7E702"
+    ns: "/cf2"
+    mocap_topic: "/mocap/cf2/pose"

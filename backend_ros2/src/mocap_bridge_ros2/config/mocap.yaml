@@ -1,0 +1,67 @@
+#frame_id: map
+#topic_prefix: /mocap
+#axis_mode: identity
+
+# Drone_id -> input topic and type
+# Replace TODOs when you discover them via:
+#   ros2 topic list
+#   ros2 topic type <topic>
+#sources:
+ # cf1:
+  #  topic: "TODO_TOPIC_FOR_CF1"
+  #  type: "pose_stamped"
+  #cf2:
+  #  topic: "TODO_TOPIC_FOR_CF2"
+  #  type: "pose_stamped"
+
+# If your upstream publishes Twist but uses linear.x/y/z as POSITION:
+# sources:
+#   cf1:
+#     topic: "/some/topic"
+#     type: "twist_xyz"
+
+#Config test: 
+#frame_id: map
+#topic_prefix: /mocap
+#axis_mode: identity
+#sources:
+ # cf1: { topic: "/vrpn_dummy/cf1/pose", type: "pose_stamped" }
+ # cf2: { topic: "/vrpn_dummy/cf2/pose", type: "pose_stamped" }
+
+
+
+frame_id: "map"
+topic_prefix: "/mocap"
+publish_rate_hz: 120.0
+
+axis_mode: identity
+# axis_mode: optitrack_to_enu   # se/solo se validato con Motive
+
+# change topic names and types as needed, e.g. if you have a different VRPN setup or use a different motion capture system
+#HOW TO DISCOVER TOPIC NAMES AND TYPES:
+# 1. Run your motion capture system and make sure it is publishing data to ROS2
+  #ros2 run vrpn_mocap client_node --ros-args -p server:=<IP> -p port:=3883
+# 2. Use the command :
+  #ros2 topic list | grep -i vrpn
+  #ros2 topic type <topic>
+  
+sources:
+  cf1:
+    topic: "/cf1/pose"
+    type: "pose_stamped"
+    frame_id: "map"
+
+  cf2:
+    topic: "/cf2/pose"
+    type: "pose_stamped"
+    frame_id: "map"
+  #
+  #  cf3:
+  #    topic: "/cf3/pose"
+  #    input_type: "pose_stamped"
+  #    frame_id: "map"
+  #
+  #  cf6:
+  #    topic: "/cf6/pose"
+  #    input_type: "pose_stamped"
+  #    frame_id: "map"

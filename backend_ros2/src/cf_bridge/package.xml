@@ -1,0 +1,21 @@
+<?xml version="1.0"?>
+<package format="3">
+  <name>cf_bridge</name>
+  <version>0.1.0</version>
+  <description>Crazyflie ROS2 bridge</description>
+
+  <maintainer email="email@gmail.com">you</maintainer>
+  <license>MIT</license>
+
+
+  <depend>rclpy</depend>
+  <depend>geometry_msgs</depend>
+  <depend>std_srvs</depend>
+  <depend>diagnostic_msgs</depend>
+
+  <exec_depend>python3-yaml</exec_depend>
+
+  <export>
+    <build_type>ament_python</build_type>
+  </export>
+</package>

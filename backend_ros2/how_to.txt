@@ -1,0 +1,276 @@
+HOW TO (progetto completo: backend + SDK)
+=========================================
+
+Panoramica
+----------
+Il progetto è diviso in 2 parti principali:
+
+1) BACKEND (ROS2 / colcon workspace)
+   - VRPN client (nodo esterno, es. `vrpn_mocap client_node`): si connette a OptiTrack/Motive via VRPN e pubblica topic ROS.
+   - `mocap_bridge_ros2`: normalizza i topic del VRPN client e pubblica topic canonici:
+       /mocap/<drone_id>/pose   (geometry_msgs/PoseStamped)
+   - `cf_bridge`: nodo ROS2 che parla con l’hardware Crazyflie tramite Crazyradio (cflib).
+       - Sottoscrive /mocap/<drone_id>/pose e invia extpos/extpose al drone.
+       - Espone topic di comando e servizi per ogni drone:
+           /<ns>/cmd_pos            (PoseStamped)
+           /<ns>/cmd_pos_relative   (Twist)
+           (opzionale se implementato) /<ns>/cmd_vel_world, /<ns>/cmd_vel_body (Twist)
+           /<ns>/takeoff, /<ns>/land, /<ns>/ekf_reset (std_srvs/Trigger)
+       - Pubblica diagnostica su /<ns>/diag
+
+2) SDK (Python / pip package)
+   - Fornisce oggetti “puliti”:
+       OptiTrack: legge /mocap/<id>/pose
+       CrazyflieAgent: pubblica comandi e chiama servizi 
+       RosContext: gestisce solo init/spin/shutdown 
+   - L’utente scrive il proprio loop di controllo usando la SDK.
+
+
+Struttura cartelle attesa
+-------------------------
+Esempio (monorepo):
+
+backendProvas/
+  backend_ros2/                 <-- workspace ROS2 (colcon)
+    src/
+      mocap_bridge_ros2/
+      cf_bridge/
+  sdk/                          <-- pacchetto python (pip)
+    src/crazyswarm_sdk/...
+  examples/
+
+
+Requires (una volta)
+------------------------
+1) Installare strumenti per build ROS2:
+   sudo apt update
+   sudo apt install -y python3-colcon-common-extensions python3-rosdep
+
+2) Inizializzare rosdep (una volta):
+   sudo rosdep init
+   rosdep update
+
+3) Installare dipendenza hardware Crazyflie (cflib):
+   python3 -m pip install --user cflib
+
+Nota:
+- cflib non è un pacchetto ROS, quindi non viene installato da rosdep/apt.
+- Se usi un virtualenv, attivalo prima del pip install.
+
+
+BUILD del backend (colcon)
+--------------------------
+Aprire un terminale e posizionarsi nella root del workspace ROS2 (dove esiste la cartella src):
+
+   cd ~/Scrivania/backendProvas/backend_ros2
+   ls
+   (deve esserci: src)
+
+1) Installare dipendenze dai package.xml presenti in src:
+   rosdep install --from-paths src --ignore-src -r -y --skip-keys ament_python
+
+2) Source della distro ROS2:
+   source /opt/ros/$ROS_DISTRO/setup.bash
+   (es: rolling / humble / iron / jazzy)
+
+3) Build:
+   colcon build --symlink-install
+
+4) Source dell’overlay del workspace (da rifare per ogni terminale che deve vedere i package):
+   source install/setup.bash
+
+5) Verifica che ROS veda i package:
+   ros2 pkg list | grep mocap_bridge_ros2
+   ros2 pkg list | grep cf_bridge
+
+
+CONFIGURAZIONE del backend
+--------------------------
+A) mocap_bridge_ros2 config (mocap.yaml)
+   Path tipico:
+     backend_ros2/src/mocap_bridge_ros2/config/mocap.yaml
+
+   Questo file dice al normalizer:
+   - quali topic di input (pubblicati dal VRPN client) leggere
+   - di che tipo sono
+   - quali drone_id produrre in output come /mocap/<drone_id>/pose
+
+   Esempio:
+
+   frame_id: map
+   topic_prefix: /mocap
+   axis_mode: identity
+
+   sources:
+     cf1:
+       topic: "/VRPN_TOPIC_CF1"
+       type: "pose_stamped"
+     cf2:
+       topic: "/VRPN_TOPIC_CF2"
+       type: "pose_stamped"
+
+   Nota:
+   - type può essere: pose_stamped | transform_stamped | odom | pose | twist_xyz
+   - twist_xyz va usato solo se upstream manda posizione dentro Twist.linear.{x,y,z}
+
+B) cf_bridge config (cf_bridge.yaml)
+   Path tipico:
+     backend_ros2/src/cf_bridge/config/cf_bridge.yaml
+
+   Questo file contiene la lista dei droni (1 nodo gestisce N droni):
+   - id: drone_id (cf1, cf2, ...)
+   - uri: radio URI del drone
+   - ns: namespace ROS per quel drone (es: /cf1)
+   - mocap_topic: topic canonico dal normalizer (es: /mocap/cf1/pose)
+
+   Esempio:
+
+   with_orient: false
+   invert_y: false
+   start_hl: true
+   hl_only: false
+   speed: 0.30
+   diag_period_sec: 0.5
+   cache_dir: "./.cf_cache"
+
+   drones:
+     - id: "cf1"
+       uri: "radio://0/90/2M/E7E7E7E702"
+       ns: "/cf1"
+       mocap_topic: "/mocap/cf1/pose"
+
+     - id: "cf2"
+       uri: "radio://0/90/2M/E7E7E7E703"
+       ns: "/cf2"
+       mocap_topic: "/mocap/cf2/pose"
+
+
+RUN del backend (ordine consigliato)
+-----------------------------------
+Il backend va avviato in più terminali dunque in  processi separati.
+
+Prima di lanciare qualsiasi comando, in ogni terminale:
+   source /opt/ros/$ROS_DISTRO/setup.bash
+
+Per i nodi buildati nel workspace, aggiungere anche:
+   cd ~/Scrivania/backendProvas/backend_ros2 (o percroso assoluto del progetto)
+   source install/setup.bash
+
+1) TERMINALE A: VRPN client (OptiTrack/Motive)
+   source /opt/ros/$ROS_DISTRO/setup.bash
+
+   ros2 run vrpn_mocap client_node --ros-args -p server:=192.168.1.10 -p port:=3883
+
+   Verifica che pubblichi topic:
+   ros2 topic list | grep -i vrpn
+
+   Se non sai i topic, scopri anche tipo:
+   ros2 topic type <topic>
+   ros2 topic info <topic> -v
+
+2) TERMINALE B: mocap_bridge_ros2 (normalizer)
+   cd ~/Scrivania/backendProvas/backend_ros2
+   source /opt/ros/$ROS_DISTRO/setup.bash
+   source install/setup.bash
+
+   ros2 launch mocap_bridge_ros2 mocap_bridge.launch.py config_path:=/PERCORSO/ASSOLUTO/mocap.yaml
+
+   Verifica output canonico:
+   ros2 topic list | grep "^/mocap"
+   ros2 topic echo /mocap/cf1/pose --once
+
+3) TERMINALE C: cf_bridge (hardware bridge)
+   cd ~/Scrivania/backendProvas/backend_ros2
+   source /opt/ros/$ROS_DISTRO/setup.bash
+   source install/setup.bash
+
+   ros2 launch cf_bridge cf_bridge.launch.py config_path:=/PERCORSO/ASSOLUTO/cf_bridge.yaml
+
+   Verifica che esponga API del drone:
+   ros2 topic list | grep "/cf1/"
+   ros2 service list | grep "/cf1/"
+
+   Minimo atteso:
+   - /cf1/cmd_pos
+   - /cf1/cmd_pos_relative
+   - /cf1/diag
+   - /cf1/takeoff
+   - /cf1/land
+   - /cf1/ekf_reset
+
+Nota:
+- Se `~` nel path non funziona in launch, usa path assoluto oppure:
+  config_path:=$(realpath ~/Scrivania/backendProvas/backend_ros2/src/.../file.yaml)
+
+
+TEST rapido backend (senza SDK)
+-------------------------------
+1) Pubblica target assoluto:
+   ros2 topic pub --once /cf1/cmd_pos geometry_msgs/msg/PoseStamped \
+     "{header: {frame_id: 'map'}, pose: {position: {x: 0.0, y: 0.0, z: 0.5}, orientation: {w: 1.0}}}"
+
+2) Pubblica target relativo:
+   ros2 topic pub --once /cf1/cmd_pos_relative geometry_msgs/msg/Twist \
+     "{linear: {x: 0.1, y: 0.0, z: 0.0}}"
+
+3) Chiama servizi:
+   ros2 service call /cf1/takeoff std_srvs/srv/Trigger "{}"
+   ros2 service call /cf1/land std_srvs/srv/Trigger "{}"
+   ros2 service call /cf1/ekf_reset std_srvs/srv/Trigger "{}"
+
+
+RUN della SDK / controller utente
+---------------------------------
+La SDK non avvia il backend: il backend deve essere già in esecuzione (terminali A/B/C).
+
+1) Installare SDK in editable:
+   cd ~/Scrivania/backendProvas/sdk
+   python3 -m pip install -e .
+
+2) Eseguire un controller utente (esempio):
+   python3 examples/minimal_controller.py
+
+Il controller utente deve:
+- creare un RosContext (init/spin in background)
+- creare OptiTrack configurando i topic /mocap/<id>/pose
+- creare CrazyflieAgent configurando topic/servizi /cfX/...
+- implementare liberamente il proprio loop (timing, stima, controllo)
+
+
+TROUBLESHOOTING
+---------------
+1) ros2 topic list vuoto
+- `source install/setup.bash` NON avvia nodi: devi lanciare i nodi.
+- verifica nodi:
+  ros2 node list
+- verifica daemon:
+  ros2 daemon status
+
+2) mocap_bridge non pubblica /mocap/<id>/pose
+- VRPN client non sta pubblicando, o YAML sources.*.topic è sbagliato.
+- controlla:
+  ros2 topic list | grep -i vrpn
+  ros2 topic echo <topic> --once
+
+3) cf_bridge non si connette al drone
+- Crazyradio collegato?
+- URI corretto?
+- cflib installato?
+  python3 -c "import cflib; print('cflib OK')"
+
+4) dopo modifica codice non cambia
+- pulire e rebuild:
+  cd ~/Scrivania/backendProvas/backend_ros2
+  rm -rf build install log
+  source /opt/ros/$ROS_DISTRO/setup.bash
+  colcon build --symlink-install
+  source install/setup.bash
+
+5) mismatch di ROS_DOMAIN_ID tra terminali
+- controlla:
+  echo $ROS_DOMAIN_ID
+- uniforma (esempio):
+  export ROS_DOMAIN_ID=0
+
+
+
